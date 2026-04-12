@@ -176,7 +176,6 @@ Default seed:
 
 - Run scripts from this folder to avoid relative path issues.
 - Preprocessed datasets are already provided, so reprocessing is usually not necessary.
-- Some data processing scripts contain hard-coded paths from the original experimental environment and may need adjustment before reuse.
 
 ## Citation
 
