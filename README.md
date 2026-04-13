@@ -55,10 +55,20 @@ Recommended environment:
 
 - Python `3.10+` or `3.11`
 
+Tested package versions:
+
+- `pandas==2.3.3`
+- `numpy==1.26.2`
+- `scikit-learn==1.8.0`
+- `matplotlib==3.7.2`
+- `seaborn==0.13.0`
+- `openpyxl==3.1.2`
+- `umap-learn==0.5.11`
+
 Install dependencies with:
 
 ```bash
-pip install torch pandas numpy scikit-learn matplotlib seaborn openpyxl umap-learn
+pip install torch pandas==2.3.3 numpy==1.26.2 scikit-learn==1.8.0 matplotlib==3.7.2 seaborn==0.13.0 openpyxl==3.1.2 umap-learn==0.5.11
 ```
 
 ## Quick Start
@@ -94,6 +104,8 @@ This generates three figures for the additive, subtractive, and replay FDI scena
 - `UMAP_windows_visualization_A.png`
 - `UMAP_windows_visualization_S.png`
 - `UMAP_windows_visualization_R.png`
+
+Because UMAP involves stochastic optimization and device-dependent floating-point computation, the exact plotted layout may vary across different machines, but the class separation patterns and the overall conclusion are not affected.
 
 ## FDI Model Usage
 
@@ -176,6 +188,7 @@ Default seed:
 
 - Run scripts from this folder to avoid relative path issues.
 - Preprocessed datasets are already provided, so reprocessing is usually not necessary.
+- Some data processing scripts contain hard-coded paths from the original experimental environment and may need adjustment before reuse.
 
 ## Citation
 
