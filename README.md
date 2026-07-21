@@ -45,6 +45,7 @@ detection_methods/
 |-- DoS_detection.py               # Traffic-based DoS evaluation
 |-- plot_umap.py                   # Six per-scenario FDI UMAP figures
 |-- combine_umap_figures.py        # Combined 2 x 3 UMAP figure
+|-- attack_methods/                # Attack-construction and log-maintenance scripts
 |-- models/                        # Transformer, LSTM, and TCN definitions
 |-- solvers/                       # FDI training and point-level evaluation logic
 |-- utils/                         # Time-series data loading and windowing
