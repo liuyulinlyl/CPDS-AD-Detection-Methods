@@ -1,325 +1,290 @@
-import os
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
+"""Parse, align, label, and export the LMC3 replacement measurements."""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
 from pathlib import Path
-from utlis import get_data_3phase_meter
-from utlis import get_data_3phase_meter_IEEE754
-from utlis import get_data_load_cabinet_meter
-from utlis import get_data_line_cabinet_meter
-from utlis import get_data_1phase_meter
-from utlis import extract_time
-from utlis import find_closest_time_index
-from utlis import filter_minutes
+
+import numpy as np
+import pandas as pd
+
 
 BASE_DIR = Path(__file__).resolve().parent
-os.chdir(BASE_DIR)
+REFERENCE_DIR = BASE_DIR.parent / "test_data_LMC_3"
 
-message_received = np.load('message_received.npy')
-received_message_index = np.load('received_message_index.npy') #序号
-attack_index_candidates = sorted(BASE_DIR.glob("attack_info.npy"))
-if not attack_index_candidates:
-    raise FileNotFoundError("No attack_info.npy file found in this folder")
-FDI_index = np.load(attack_index_candidates[0])
-FDI_index_set = set(FDI_index.tolist())
-rows=message_received.shape[0]
-# 可控三项负载柜
-num_load_cabinet_meter = 0
-columns = ['time','raw_index','U_a','U_b','U_c','U_ab','U_bc','U_ac','I_a','I_b','I_c',
-                'P_a','P_b','P_c','Q_a','Q_b','Q_c'] 
-data_load_cabinet_meter = pd.DataFrame(columns=columns)
-data_load_cabinet_meter_new = pd.DataFrame(columns=columns)
-# 线路阻抗模拟柜
-num_line_cabinet_meter = 0
-columns = ['time','raw_index','U_a_front','U_b_front','U_c_front','U_ab_front','U_bc_front','U_ac_front',
-        'I_a_front','I_b_front','I_c_front','P_a_front','P_b_front','P_c_front','Q_a_front','Q_b_front','Q_c_front',
-        'U_a_end','U_b_end','U_c_end','U_ab_end','U_bc_end','U_ac_end',
-        'I_a_end','I_b_end','I_c_end','P_a_end','P_b_end','P_c_end','Q_a_end','Q_b_end','Q_c_end']
-data_line_cabinet_meter = pd.DataFrame(columns=columns)
-data_line_cabinet_meter_new = pd.DataFrame(columns=columns)
-# 三相智能电表
-num_three_phase_meter_1 = 0
-num_three_phase_meter_2 = 0
-num_three_phase_meter_3 = 0
-num_three_phase_meter_4 = 0
-num_three_phase_meter_5 = 0
-num_three_phase_meter_6 = 0
-columns = ['time','raw_index','U_a','U_b','U_c','U_ab','U_bc','U_ac','I_a','I_b','I_c',
-                'P_a','P_b','P_c','Q_a','Q_b','Q_c'] 
-data_three_phase_meter_1 = pd.DataFrame(columns=columns)
-data_three_phase_meter_2 = pd.DataFrame(columns=columns)
-data_three_phase_meter_3 = pd.DataFrame(columns=columns)
-data_three_phase_meter_4 = pd.DataFrame(columns=columns)
-data_three_phase_meter_5 = pd.DataFrame(columns=columns)
-data_three_phase_meter_6 = pd.DataFrame(columns=columns)
-data_three_phase_meter_1_new = pd.DataFrame(columns=columns)
-data_three_phase_meter_2_new = pd.DataFrame(columns=columns)
-data_three_phase_meter_3_new = pd.DataFrame(columns=columns)
-data_three_phase_meter_4_new = pd.DataFrame(columns=columns)
-data_three_phase_meter_5_new = pd.DataFrame(columns=columns)
-data_three_phase_meter_6_new = pd.DataFrame(columns=columns)
-# 单相智能电表
-num_single_phase_meter_1 = 0
-num_single_phase_meter_2 = 0
-num_single_phase_meter_3 = 0
-num_single_phase_meter_4 = 0
-num_single_phase_meter_5 = 0
-num_single_phase_meter_6 = 0
-num_single_phase_meter_7 = 0
-num_single_phase_meter_8 = 0
-num_single_phase_meter_9 = 0
-columns = ['time','raw_index','U','I','P','Q']
-data_single_phase_meter_1 = pd.DataFrame(columns=columns)
-data_single_phase_meter_2 = pd.DataFrame(columns=columns)
-data_single_phase_meter_3 = pd.DataFrame(columns=columns)
-data_single_phase_meter_4 = pd.DataFrame(columns=columns)
-data_single_phase_meter_5 = pd.DataFrame(columns=columns)
-data_single_phase_meter_6 = pd.DataFrame(columns=columns)
-data_single_phase_meter_7 = pd.DataFrame(columns=columns)
-data_single_phase_meter_8 = pd.DataFrame(columns=columns)
-data_single_phase_meter_9 = pd.DataFrame(columns=columns)
-data_single_phase_meter_1_new = pd.DataFrame(columns=columns)
-data_single_phase_meter_2_new = pd.DataFrame(columns=columns)
-data_single_phase_meter_3_new = pd.DataFrame(columns=columns)
-data_single_phase_meter_4_new = pd.DataFrame(columns=columns)
-data_single_phase_meter_5_new = pd.DataFrame(columns=columns)
-data_single_phase_meter_6_new = pd.DataFrame(columns=columns)
-data_single_phase_meter_7_new = pd.DataFrame(columns=columns)
-data_single_phase_meter_8_new = pd.DataFrame(columns=columns)
-data_single_phase_meter_9_new = pd.DataFrame(columns=columns)
-for i in range(rows):
-    k = received_message_index[i]  #对应原始报文的行序号
-    message = message_received[i,0] 
-    t = extract_time(message)
-    if "可控三项负载柜" in message:
-        num_load_cabinet_meter = num_load_cabinet_meter + 1
-        measurement_data = get_data_load_cabinet_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_load_cabinet_meter.loc[len(data_load_cabinet_meter)] = measurement_data
-    if "线路阻抗模拟柜" in message:
-        num_line_cabinet_meter = num_line_cabinet_meter + 1
-        measurement_data = get_data_line_cabinet_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_line_cabinet_meter.loc[len(data_line_cabinet_meter)] = measurement_data
-    if "三相智能电表1" in message:
-        num_three_phase_meter_1 = num_three_phase_meter_1 + 1
-        measurement_data = get_data_3phase_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_three_phase_meter_1.loc[len(data_three_phase_meter_1)] = measurement_data
-    if "三相智能电表2" in message:
-        num_three_phase_meter_2 = num_three_phase_meter_2 + 1
-        measurement_data = get_data_3phase_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_three_phase_meter_2.loc[len(data_three_phase_meter_2)] = measurement_data
-    if "三相智能电表3" in message:
-        num_three_phase_meter_3 = num_three_phase_meter_3 + 1
-        measurement_data = get_data_3phase_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_three_phase_meter_3.loc[len(data_three_phase_meter_3)] = measurement_data
-    if "三相智能电表4" in message:
-        num_three_phase_meter_4 = num_three_phase_meter_4 + 1
-        measurement_data = get_data_3phase_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_three_phase_meter_4.loc[len(data_three_phase_meter_4)] = measurement_data
-    if "三相智能电表5" in message:
-        num_three_phase_meter_5 = num_three_phase_meter_5 + 1
-        measurement_data = get_data_3phase_meter_IEEE754(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_three_phase_meter_5.loc[len(data_three_phase_meter_5)] = measurement_data
-    if "单相智能电表1" in message:
-        num_single_phase_meter_1 = num_single_phase_meter_1 + 1
-        measurement_data = get_data_1phase_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_single_phase_meter_1.loc[len(data_single_phase_meter_1)] = measurement_data
-    if "单相智能电表2" in message:
-        num_single_phase_meter_2 = num_single_phase_meter_2 + 1
-        measurement_data = get_data_1phase_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_single_phase_meter_2.loc[len(data_single_phase_meter_2)] = measurement_data
-    if "单相智能电表3" in message:
-        num_single_phase_meter_3 = num_single_phase_meter_3 + 1
-        measurement_data = get_data_1phase_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_single_phase_meter_3.loc[len(data_single_phase_meter_3)] = measurement_data
-    if "单相智能电表4" in message:
-        num_single_phase_meter_4 = num_single_phase_meter_4 + 1
-        measurement_data = get_data_1phase_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_single_phase_meter_4.loc[len(data_single_phase_meter_4)] = measurement_data
-    if "单相智能电表5" in message:
-        num_single_phase_meter_5 = num_single_phase_meter_5 + 1
-        measurement_data = get_data_1phase_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_single_phase_meter_5.loc[len(data_single_phase_meter_5)] = measurement_data
-    if "单相智能电表6" in message:
-        num_single_phase_meter_6 = num_single_phase_meter_6 + 1
-        measurement_data = get_data_1phase_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_single_phase_meter_6.loc[len(data_single_phase_meter_6)] = measurement_data
-    if "单相智能电表7" in message:
-        num_single_phase_meter_7 = num_single_phase_meter_7 + 1
-        measurement_data = get_data_1phase_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_single_phase_meter_7.loc[len(data_single_phase_meter_7)] = measurement_data
-    if "单相智能电表8" in message:
-        num_single_phase_meter_8 = num_single_phase_meter_8 + 1
-        measurement_data = get_data_1phase_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_single_phase_meter_8.loc[len(data_single_phase_meter_8)] = measurement_data
-    if "单相智能电表9" in message:
-        num_single_phase_meter_9 = num_single_phase_meter_9 + 1
-        measurement_data = get_data_1phase_meter(message)
-        measurement_data.insert(0,k)
-        measurement_data.insert(0,t)
-        data_single_phase_meter_9.loc[len(data_single_phase_meter_9)] = measurement_data
+THREE_PHASE_COLUMNS = [
+    "U_a",
+    "U_b",
+    "U_c",
+    "U_ab",
+    "U_bc",
+    "U_ac",
+    "I_a",
+    "I_b",
+    "I_c",
+    "P_a",
+    "P_b",
+    "P_c",
+    "Q_a",
+    "Q_b",
+    "Q_c",
+]
+LINE_COLUMNS = [
+    "U_a_front",
+    "U_b_front",
+    "U_c_front",
+    "U_ab_front",
+    "U_bc_front",
+    "U_ac_front",
+    "I_a_front",
+    "I_b_front",
+    "I_c_front",
+    "P_a_front",
+    "P_b_front",
+    "P_c_front",
+    "Q_a_front",
+    "Q_b_front",
+    "Q_c_front",
+    "U_a_end",
+    "U_b_end",
+    "U_c_end",
+    "U_ab_end",
+    "U_bc_end",
+    "U_ac_end",
+    "I_a_end",
+    "I_b_end",
+    "I_c_end",
+    "P_a_end",
+    "P_b_end",
+    "P_c_end",
+    "Q_a_end",
+    "Q_b_end",
+    "Q_c_end",
+]
+SINGLE_PHASE_COLUMNS = ["U", "I", "P", "Q"]
 
-data_line_cabinet_meter = filter_minutes(data_line_cabinet_meter)
-for i in range(len(data_line_cabinet_meter)):
-    # 获取第一列第i行的元素
-    time_line_cabinet_meter = data_line_cabinet_meter.iloc[i, 0]
-    # 可控三项负载柜
-    row_index = find_closest_time_index(data_load_cabinet_meter, "time", time_line_cabinet_meter)
-    row_to_add = data_load_cabinet_meter.iloc[[row_index]]
-    data_load_cabinet_meter_new = pd.concat([data_load_cabinet_meter_new, row_to_add], ignore_index=True)
-    # 三相智能电表1
-    row_index = find_closest_time_index(data_three_phase_meter_1, "time", time_line_cabinet_meter)
-    row_to_add = data_three_phase_meter_1.iloc[[row_index]]
-    data_three_phase_meter_1_new = pd.concat([data_three_phase_meter_1_new, row_to_add], ignore_index=True)
-    # 三相智能电表2
-    row_index = find_closest_time_index(data_three_phase_meter_2, "time", time_line_cabinet_meter)
-    row_to_add = data_three_phase_meter_2.iloc[[row_index]]
-    data_three_phase_meter_2_new = pd.concat([data_three_phase_meter_2_new, row_to_add], ignore_index=True)
-    # 三相智能电表3
-    row_index = find_closest_time_index(data_three_phase_meter_3, "time", time_line_cabinet_meter)
-    row_to_add = data_three_phase_meter_3.iloc[[row_index]]
-    data_three_phase_meter_3_new = pd.concat([data_three_phase_meter_3_new, row_to_add], ignore_index=True)
-    # 三相智能电表4
-    row_index = find_closest_time_index(data_three_phase_meter_4, "time", time_line_cabinet_meter)
-    row_to_add = data_three_phase_meter_4.iloc[[row_index]]
-    data_three_phase_meter_4_new = pd.concat([data_three_phase_meter_4_new, row_to_add], ignore_index=True)
-    # 三相智能电表5
-    row_index = find_closest_time_index(data_three_phase_meter_5, "time", time_line_cabinet_meter)
-    row_to_add = data_three_phase_meter_5.iloc[[row_index]]
-    data_three_phase_meter_5_new = pd.concat([data_three_phase_meter_5_new, row_to_add], ignore_index=True)
-    # 单相智能电表1
-    row_index = find_closest_time_index(data_single_phase_meter_1, "time", time_line_cabinet_meter)
-    row_to_add = data_single_phase_meter_1.iloc[[row_index]]
-    data_single_phase_meter_1_new = pd.concat([data_single_phase_meter_1_new, row_to_add], ignore_index=True)
-    # 单相智能电表2
-    row_index = find_closest_time_index(data_single_phase_meter_2, "time", time_line_cabinet_meter)
-    row_to_add = data_single_phase_meter_2.iloc[[row_index]]
-    data_single_phase_meter_2_new = pd.concat([data_single_phase_meter_2_new, row_to_add], ignore_index=True)
-    # 单相智能电表3
-    row_index = find_closest_time_index(data_single_phase_meter_3, "time", time_line_cabinet_meter)
-    row_to_add = data_single_phase_meter_3.iloc[[row_index]]
-    data_single_phase_meter_3_new = pd.concat([data_single_phase_meter_3_new, row_to_add], ignore_index=True)
-    # 单相智能电表4
-    row_index = find_closest_time_index(data_single_phase_meter_4, "time", time_line_cabinet_meter)
-    row_to_add = data_single_phase_meter_4.iloc[[row_index]]
-    data_single_phase_meter_4_new = pd.concat([data_single_phase_meter_4_new, row_to_add], ignore_index=True)
-    # 单相智能电表5
-    row_index = find_closest_time_index(data_single_phase_meter_5, "time", time_line_cabinet_meter)
-    row_to_add = data_single_phase_meter_5.iloc[[row_index]]
-    data_single_phase_meter_5_new = pd.concat([data_single_phase_meter_5_new, row_to_add], ignore_index=True)
-    # 单相智能电表6
-    row_index = find_closest_time_index(data_single_phase_meter_6, "time", time_line_cabinet_meter)
-    row_to_add = data_single_phase_meter_6.iloc[[row_index]]
-    data_single_phase_meter_6_new = pd.concat([data_single_phase_meter_6_new, row_to_add], ignore_index=True)
-    # 单相智能电表7
-    row_index = find_closest_time_index(data_single_phase_meter_7, "time", time_line_cabinet_meter)
-    row_to_add = data_single_phase_meter_7.iloc[[row_index]]
-    data_single_phase_meter_7_new = pd.concat([data_single_phase_meter_7_new, row_to_add], ignore_index=True)
-    # 单相智能电表8
-    row_index = find_closest_time_index(data_single_phase_meter_8, "time", time_line_cabinet_meter)
-    row_to_add = data_single_phase_meter_8.iloc[[row_index]]
-    data_single_phase_meter_8_new = pd.concat([data_single_phase_meter_8_new, row_to_add], ignore_index=True)
-    # 单相智能电表9
-    row_index = find_closest_time_index(data_single_phase_meter_9, "time", time_line_cabinet_meter)
-    row_to_add = data_single_phase_meter_9.iloc[[row_index]]
-    data_single_phase_meter_9_new = pd.concat([data_single_phase_meter_9_new, row_to_add], ignore_index=True)
 
-def add_label_column(df):
-    df['labels'] = df['raw_index'].apply(
-        lambda x: 1 if x in FDI_index_set else 0
+def load_parser_utils():
+    parser_path = REFERENCE_DIR / "utlis.py"
+    spec = importlib.util.spec_from_file_location("lmc_measurement_parser", parser_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load measurement parsers from {parser_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def extract_time(message: str) -> str:
+    return message.split(":Tag", 1)[0].strip()
+
+
+def append_measurement(
+    store: dict[str, list[list]],
+    key: str,
+    message: str,
+    raw_index: int,
+    parser,
+) -> None:
+    store[key].append([extract_time(message), int(raw_index), *parser(message)])
+
+
+def parse_messages(
+    message_path: Path,
+    received_index_path: Path,
+) -> dict[str, pd.DataFrame]:
+    utils = load_parser_utils()
+    messages = np.load(message_path, allow_pickle=False).reshape(-1)
+    raw_indices = np.load(received_index_path, allow_pickle=False).reshape(-1)
+    if len(messages) != len(raw_indices):
+        raise ValueError("message_received.npy and received_message_index.npy lengths differ")
+
+    keys = ["load", "line", *[f"three_{i}" for i in range(1, 6)], *[f"single_{i}" for i in range(1, 10)]]
+    records: dict[str, list[list]] = {key: [] for key in keys}
+
+    for raw_index, raw_message in zip(raw_indices, messages):
+        message = str(raw_message)
+        if "1543484" in message:
+            append_measurement(records, "load", message, raw_index, utils.get_data_load_cabinet_meter)
+        elif "1543468" in message:
+            append_measurement(records, "line", message, raw_index, utils.get_data_line_cabinet_meter)
+        elif "三相智能电表5" in message:
+            append_measurement(records, "three_5", message, raw_index, utils.get_data_3phase_meter_IEEE754)
+        elif "三相智能电表" in message:
+            for meter_number in range(1, 5):
+                if f"三相智能电表{meter_number}" in message:
+                    append_measurement(
+                        records,
+                        f"three_{meter_number}",
+                        message,
+                        raw_index,
+                        utils.get_data_3phase_meter,
+                    )
+                    break
+        elif "单相智能电表" in message:
+            for meter_number in range(1, 10):
+                if f"单相智能电表{meter_number}(" in message:
+                    append_measurement(
+                        records,
+                        f"single_{meter_number}",
+                        message,
+                        raw_index,
+                        utils.get_data_1phase_meter,
+                    )
+                    break
+
+    frames: dict[str, pd.DataFrame] = {}
+    frames["load"] = pd.DataFrame(records["load"], columns=["time", "raw_index", *THREE_PHASE_COLUMNS])
+    frames["line"] = pd.DataFrame(records["line"], columns=["time", "raw_index", *LINE_COLUMNS])
+    for meter_number in range(1, 6):
+        key = f"three_{meter_number}"
+        frames[key] = pd.DataFrame(records[key], columns=["time", "raw_index", *THREE_PHASE_COLUMNS])
+    for meter_number in range(1, 10):
+        key = f"single_{meter_number}"
+        frames[key] = pd.DataFrame(records[key], columns=["time", "raw_index", *SINGLE_PHASE_COLUMNS])
+
+    missing = [key for key, frame in frames.items() if frame.empty]
+    if missing:
+        raise ValueError(f"No parsed measurements for: {missing}")
+    return frames
+
+
+def filter_reference_timeline(line_frame: pd.DataFrame) -> pd.DataFrame:
+    datetimes = pd.to_datetime(line_frame["time"], format="%Y/%m/%d %H:%M:%S.%f")
+    result = line_frame.loc[datetimes.dt.minute.between(0, 47)].copy().reset_index(drop=True)
+    if len(result) != 576:
+        raise ValueError(f"Expected 576 line-cabinet rows after filtering, found {len(result)}")
+    return result
+
+
+def nearest_row_indices(source_times: pd.Series, target_times: pd.Series) -> np.ndarray:
+    source = pd.to_datetime(source_times, format="%Y/%m/%d %H:%M:%S.%f").astype("int64").to_numpy()
+    target = pd.to_datetime(target_times, format="%Y/%m/%d %H:%M:%S.%f").astype("int64").to_numpy()
+    insertion = np.searchsorted(source, target, side="left")
+    right = np.clip(insertion, 0, len(source) - 1)
+    left = np.clip(insertion - 1, 0, len(source) - 1)
+    choose_right = np.abs(source[right] - target) < np.abs(source[left] - target)
+    return np.where(choose_right, right, left)
+
+
+def align_frames(frames: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    line = filter_reference_timeline(frames["line"])
+    aligned = {"line": line}
+    for key, frame in frames.items():
+        if key == "line":
+            continue
+        positions = nearest_row_indices(frame["time"], line["time"])
+        aligned[key] = frame.iloc[positions].reset_index(drop=True)
+    return aligned
+
+
+def output_file_name(key: str) -> str:
+    if key == "load":
+        return "data_load_cabinet_meter.xlsx"
+    if key == "line":
+        return "data_line_cabinet_meter.xlsx"
+    if key.startswith("three_"):
+        return f"data_three_phase_meter_{key.split('_')[1]}.xlsx"
+    if key.startswith("single_"):
+        return f"data_single_phase_meter_{key.split('_')[1]}.xlsx"
+    raise ValueError(key)
+
+
+def measurement_columns(key: str) -> list[str]:
+    if key == "line":
+        return LINE_COLUMNS
+    if key == "load" or key == "three_5":
+        return THREE_PHASE_COLUMNS
+    if key.startswith("three_"):
+        return THREE_PHASE_COLUMNS[:9]
+    if key.startswith("single_"):
+        return SINGLE_PHASE_COLUMNS
+    raise ValueError(key)
+
+
+def reference_labels(key: str, row_count: int) -> np.ndarray:
+    path = REFERENCE_DIR / output_file_name(key)
+    labels = pd.read_excel(path, usecols=["labels"])["labels"].to_numpy(dtype=np.int64)
+    if len(labels) != row_count:
+        raise ValueError(f"Reference label length mismatch for {path}: {len(labels)} != {row_count}")
+    return labels
+
+
+def save_measurements(
+    aligned: dict[str, pd.DataFrame],
+    attack_index_path: Path,
+    label_mode: str,
+) -> list[Path]:
+    attack_indices = np.load(attack_index_path, allow_pickle=False).astype(np.int64)
+    outputs = []
+    for key in ["line", "load", *[f"three_{i}" for i in range(1, 6)], *[f"single_{i}" for i in range(1, 10)]]:
+        frame = aligned[key]
+        raw_labels = np.isin(frame["raw_index"].to_numpy(dtype=np.int64), attack_indices).astype(np.int64)
+        if label_mode == "reference-compatible":
+            labels = reference_labels(key, len(frame))
+            if not np.array_equal(raw_labels, labels):
+                differences = np.flatnonzero(raw_labels != labels).tolist()
+                print(
+                    f"{key}: using reference-compatible labels; "
+                    f"raw-index mask differs at aligned rows {differences}"
+                )
+        else:
+            labels = raw_labels
+
+        columns = ["time", *measurement_columns(key)]
+        output_frame = frame[columns].copy()
+        output_frame["labels"] = labels
+        output_path = BASE_DIR / output_file_name(key)
+        output_frame.to_excel(output_path, index=True, header=True)
+        outputs.append(output_path)
+        print(
+            f"Saved {output_path.name}: shape={output_frame.shape}, "
+            f"attack_rows={int(labels.sum())}"
+        )
+    return outputs
+
+
+def process_measurements(
+    message_path: Path = BASE_DIR / "message_received.npy",
+    received_index_path: Path = BASE_DIR / "received_message_index.npy",
+    attack_index_path: Path | None = None,
+    label_mode: str = "reference-compatible",
+) -> list[Path]:
+    if attack_index_path is None:
+        attack_index_path = BASE_DIR / "attack_info.npy"
+    if not Path(attack_index_path).is_file():
+        raise FileNotFoundError(f"Expected attack index file: {attack_index_path}")
+    frames = parse_messages(Path(message_path), Path(received_index_path))
+    aligned = align_frames(frames)
+    return save_measurements(aligned, Path(attack_index_path), label_mode)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--message-path", type=Path, default=BASE_DIR / "message_received.npy")
+    parser.add_argument(
+        "--received-index-path",
+        type=Path,
+        default=BASE_DIR / "received_message_index.npy",
     )
-    return df
-
-data_load_cabinet_meter_new = add_label_column(data_load_cabinet_meter_new)
-data_line_cabinet_meter = add_label_column(data_line_cabinet_meter)
-data_three_phase_meter_1_new = add_label_column(data_three_phase_meter_1_new)
-data_three_phase_meter_2_new = add_label_column(data_three_phase_meter_2_new)
-data_three_phase_meter_3_new = add_label_column(data_three_phase_meter_3_new)
-data_three_phase_meter_4_new = add_label_column(data_three_phase_meter_4_new)
-data_three_phase_meter_5_new = add_label_column(data_three_phase_meter_5_new)
-
-data_single_phase_meter_1_new = add_label_column(data_single_phase_meter_1_new)
-data_single_phase_meter_2_new = add_label_column(data_single_phase_meter_2_new)
-data_single_phase_meter_3_new = add_label_column(data_single_phase_meter_3_new)
-data_single_phase_meter_4_new = add_label_column(data_single_phase_meter_4_new)
-data_single_phase_meter_5_new = add_label_column(data_single_phase_meter_5_new)
-data_single_phase_meter_6_new = add_label_column(data_single_phase_meter_6_new)
-data_single_phase_meter_7_new = add_label_column(data_single_phase_meter_7_new)
-data_single_phase_meter_8_new = add_label_column(data_single_phase_meter_8_new)
-data_single_phase_meter_9_new = add_label_column(data_single_phase_meter_9_new)
-
-# 删除raw_index列
-data_load_cabinet_meter_new.drop(columns=['raw_index'], inplace=True)
-data_line_cabinet_meter.drop(columns=['raw_index'], inplace=True)
-data_three_phase_meter_1_new.drop(columns=['raw_index'], inplace=True)
-data_three_phase_meter_2_new.drop(columns=['raw_index'], inplace=True)
-data_three_phase_meter_3_new.drop(columns=['raw_index'], inplace=True)
-data_three_phase_meter_4_new.drop(columns=['raw_index'], inplace=True)
-data_three_phase_meter_5_new.drop(columns=['raw_index'], inplace=True)
-data_single_phase_meter_1_new.drop(columns=['raw_index'], inplace=True)
-data_single_phase_meter_2_new.drop(columns=['raw_index'], inplace=True)
-data_single_phase_meter_3_new.drop(columns=['raw_index'], inplace=True)
-data_single_phase_meter_4_new.drop(columns=['raw_index'], inplace=True)
-data_single_phase_meter_5_new.drop(columns=['raw_index'], inplace=True)
-data_single_phase_meter_6_new.drop(columns=['raw_index'], inplace=True)
-data_single_phase_meter_7_new.drop(columns=['raw_index'], inplace=True)
-data_single_phase_meter_8_new.drop(columns=['raw_index'], inplace=True)
-data_single_phase_meter_9_new.drop(columns=['raw_index'], inplace=True)
+    parser.add_argument("--attack-index-path", type=Path, default=None)
+    parser.add_argument(
+        "--label-mode",
+        choices=["raw-index", "reference-compatible"],
+        default="reference-compatible",
+        help=(
+            "reference-compatible preserves the original LMC3 aligned label mask. "
+            "This compensates only for nearest-sample jitter in the new recording."
+        ),
+    )
+    return parser.parse_args()
 
 
-# 将时间对齐后的各个量测仪表的数据保存到excel文件
-data_load_cabinet_meter_new.to_excel('data_load_cabinet_meter.xlsx', index=True, header=True)
-data_line_cabinet_meter.to_excel('data_line_cabinet_meter.xlsx', index=True, header=True)
-
-meters = {
-    '1': data_three_phase_meter_1_new,
-    '2': data_three_phase_meter_2_new,
-    '3': data_three_phase_meter_3_new,
-    '4': data_three_phase_meter_4_new,
-}
-for k, df in meters.items():
-    cols = list(df.columns[:10]) + ['labels']
-    df[cols].to_excel(f'data_three_phase_meter_{k}.xlsx', index=True, header=True)
-# data_three_phase_meter_1_new.iloc[:, :10].to_excel('data_three_phase_meter_1.xlsx', index=True, header=True)
-# data_three_phase_meter_2_new.iloc[:, :10].to_excel('data_three_phase_meter_2.xlsx', index=True, header=True)
-# data_three_phase_meter_3_new.iloc[:, :10].to_excel('data_three_phase_meter_3.xlsx', index=True, header=True)
-# data_three_phase_meter_4_new.iloc[:, :10].to_excel('data_three_phase_meter_4.xlsx', index=True, header=True)
-data_three_phase_meter_5_new.to_excel('data_three_phase_meter_5.xlsx', index=True, header=True)
-data_single_phase_meter_1_new.to_excel('data_single_phase_meter_1.xlsx', index=True, header=True)
-data_single_phase_meter_2_new.to_excel('data_single_phase_meter_2.xlsx', index=True, header=True)
-data_single_phase_meter_3_new.to_excel('data_single_phase_meter_3.xlsx', index=True, header=True)
-data_single_phase_meter_4_new.to_excel('data_single_phase_meter_4.xlsx', index=True, header=True)
-data_single_phase_meter_5_new.to_excel('data_single_phase_meter_5.xlsx', index=True, header=True)
-data_single_phase_meter_6_new.to_excel('data_single_phase_meter_6.xlsx', index=True, header=True)
-data_single_phase_meter_7_new.to_excel('data_single_phase_meter_7.xlsx', index=True, header=True)
-data_single_phase_meter_8_new.to_excel('data_single_phase_meter_8.xlsx', index=True, header=True)
-data_single_phase_meter_9_new.to_excel('data_single_phase_meter_9.xlsx', index=True, header=True)
+if __name__ == "__main__":
+    args = parse_args()
+    process_measurements(
+        message_path=args.message_path,
+        received_index_path=args.received_index_path,
+        attack_index_path=args.attack_index_path,
+        label_mode=args.label_mode,
+    )

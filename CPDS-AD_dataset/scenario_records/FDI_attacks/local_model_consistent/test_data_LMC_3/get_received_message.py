@@ -1,40 +1,63 @@
-import os
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
+"""Extract received Modbus messages from the generated attacked log."""
+
+from __future__ import annotations
+
+import argparse
 from pathlib import Path
 
+import numpy as np
+
+
 BASE_DIR = Path(__file__).resolve().parent
-os.chdir(BASE_DIR)
 
-log_candidates = sorted(BASE_DIR.glob("log_*.log"))
-if not log_candidates:
-    raise FileNotFoundError("No log_*.log file found in this folder")
-file_path = log_candidates[0].name
-message_received = np.empty((0, 1)) 
-i=0
-line_numbers = []  # 新增：用于存储行序号的列表
-with open(file_path, 'r', encoding='utf-8') as file:
-    content = file.readlines()  # 读取所有行
-    for line in content:
-        # if i>1000:
-        #     break
-        if "接收报文" in line:
-            message_received = np.vstack((message_received, line.strip()))
-            line_numbers.append(i) 
-        i=i+1
-        
 
-np.save('message_received.npy', message_received)
-np.savetxt('message_received.txt', 
-           message_received, 
-           fmt='%s',          # 指定字符串格式
-           encoding='utf-8')  # 支持中文和特殊字符
+def find_default_log() -> Path:
+    log_path = BASE_DIR / "log_20260712_21.log"
+    if not log_path.is_file():
+        raise FileNotFoundError(
+            f"Expected log file {log_path.name} in {BASE_DIR}"
+        )
+    return log_path
 
-received_index_path =  r'received_message_index'
 
-FDI_index_array = np.array(line_numbers)
-np.save(received_index_path, FDI_index_array)
-print(f"已从 {file_path} 提取接收报文: {len(line_numbers)} 条")
-print(f"已保存 received_message 到: message_received.npy / message_received.txt")
-print(f"已保存 received_message_index 到: {received_index_path}.npy")
+def extract_received_messages(log_path: Path) -> tuple[Path, Path]:
+    log_path = Path(log_path)
+    messages = []
+    line_numbers = []
+    with log_path.open("r", encoding="utf-8") as file:
+        for line_number, line in enumerate(file):
+            if "接收报文" in line:
+                messages.append(line.strip())
+                line_numbers.append(line_number)
+
+    if not messages:
+        raise ValueError(f"No received messages found in {log_path}")
+
+    message_array = np.asarray(messages, dtype=str).reshape(-1, 1)
+    index_array = np.asarray(line_numbers, dtype=np.int64)
+    message_path = BASE_DIR / "message_received.npy"
+    index_path = BASE_DIR / "received_message_index.npy"
+    np.save(message_path, message_array)
+    np.save(index_path, index_array)
+    np.savetxt(
+        BASE_DIR / "message_received.txt",
+        message_array,
+        fmt="%s",
+        encoding="utf-8",
+    )
+
+    print(f"Extracted received messages: {len(messages)}")
+    print(f"Saved: {message_path}")
+    print(f"Saved: {index_path}")
+    return message_path, index_path
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--log-path", type=Path, default=None)
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    extract_received_messages(args.log_path or find_default_log())
