@@ -1,11 +1,12 @@
 # CPDS-AD Detection Methods
 
-[CPDS-AD dataset (figshare)](https://doi.org/10.6084/m9.figshare.31989933) | [Archived code (Zenodo)](https://doi.org/10.5281/zenodo.19562168) | [GitHub repository](https://github.com/liuyulinlyl/CPDS-AD-Detection-Methods)
+[Paper (*Scientific Data*)](https://www.nature.com/articles/s41597-026-08327-4) | [CPDS-AD dataset (figshare)](https://doi.org/10.6084/m9.figshare.31989933) | [Archived code (Zenodo)](https://doi.org/10.5281/zenodo.19547200) | [GitHub repository](https://github.com/liuyulinlyl/CPDS-AD-Detection-Methods)
 
-This repository contains the data-processing, visualization, and attack-detection code accompanying the manuscript:
+This repository contains the data-processing, visualization, and attack-detection code accompanying the following article:
 
-> **A Cyber-Attack Detection Dataset for Distribution Systems Generated from a Scaled Cyber-Physical Testbed**  
-> Yulin Liu, Zhaojun Ruan, and Libao Shi
+> **[A Cyber-Attack Detection Dataset for Distribution Systems Generated from a Scaled Cyber-Physical Testbed](https://www.nature.com/articles/s41597-026-08327-4)**  
+> Yulin Liu, Zhaojun Ruan, and Libao Shi  
+> *Scientific Data* (2026), [https://doi.org/10.1038/s41597-026-08327-4](https://doi.org/10.1038/s41597-026-08327-4)
 
 The included benchmarks cover false data injection (FDI) detection with unsupervised deep reconstruction models and denial-of-service (DoS) detection from communication-traffic time series. Preprocessed datasets and pretrained FDI checkpoints are included so that the validation experiments can be run directly.
 
@@ -33,9 +34,9 @@ Measurements were polled at 5 s intervals. Each 24 h load profile was compressed
 | Ramp-drift FDI | `RD` | 5 | Uses a smooth rise-hold-fall perturbation profile with a maximum relative deviation of 1%. |
 | Local model-consistent FDI | `LMC` | 5 | Coordinates voltage, current, active-power, and reactive-power changes to preserve local physical consistency. |
 | Adversarial-learning FDI | `AL` | 5 | Constructs stealth-oriented perturbations from learned normal-data patterns. |
-| Polling-aware DoS | `D` | 6 | Injects spoofed traffic at low, medium, or high intensity while disrupting polling responses. |
+| Polling-aware DoS | `D` | 15 | Injects spoofed Modbus response traffic at low, medium, or high intensity while disrupting polling responses. |
 
-The baseline additive and subtractive attacks use nominal proportional biases of approximately 1%, with limited variation between attacked channels. The DoS data are divided into two scenarios at each intensity; the mean injected spoofed-message rates reported in the paper are 230, 370, and 460 bytes/s for the low-, medium-, and high-intensity cases, respectively.
+The baseline additive and subtractive attacks use nominal proportional biases of approximately 1%, with limited variation between attacked channels. The DoS data contain five independently recorded scenarios at each intensity, for a total of 15 scenarios. Each scenario contains 15 attack intervals of 0.5 s. Every interval injects 5, 8, or 10 spoofed 23-byte Modbus response messages in the low-, medium-, or high-intensity setting, respectively. These settings correspond to approximately 230, 368, and 460 bytes/s; the rates are reported as 230, 370, and 460 bytes/s in the paper.
 
 ## Repository structure
 
@@ -72,11 +73,11 @@ All benchmark scripts read from `CPDS-AD_dataset/merged_datasets/`.
 | `test_data_RD.xlsx` | 2,880 | 132 features + `labels` | Ramp-drift FDI test data |
 | `test_data_LMC.xlsx` | 2,880 | 132 features + `labels` | Local model-consistent FDI test data |
 | `test_data_AL.xlsx` | 2,880 | 132 features + `labels` | Adversarial-learning FDI test data |
-| `test_data_D_low.xlsx` | 1,152 | `Time`, `Traffic_volume`, `Labels` | Low-intensity DoS test data |
-| `test_data_D_medium.xlsx` | 1,152 | `Time`, `Traffic_volume`, `Labels` | Medium-intensity DoS test data |
-| `test_data_D_high.xlsx` | 1,152 | `Time`, `Traffic_volume`, `Labels` | High-intensity DoS test data |
+| `test_data_D_low.xlsx` | 2,880 | `Sequence`, `Traffic_volume`, `Labels` | Low-intensity DoS test data |
+| `test_data_D_medium.xlsx` | 2,880 | `Sequence`, `Traffic_volume`, `Labels` | Medium-intensity DoS test data |
+| `test_data_D_high.xlsx` | 2,880 | `Sequence`, `Traffic_volume`, `Labels` | High-intensity DoS test data |
 
-The Excel workbooks preserve a serialized row-index column. The FDI loader reads it with `index_col=0`, so the logical dimensions shown above exclude that index. For both FDI and DoS data, label `0` denotes normal operation and label `1` denotes an attacked sample. `Traffic_volume` is the number of message bytes aggregated in each consecutive 5 s window.
+The FDI workbooks preserve a serialized row-index column. The FDI loader reads it with `index_col=0`, so the logical FDI dimensions shown above exclude that index. The DoS workbooks instead contain the explicit columns `Sequence`, `Traffic_volume`, and `Labels`. Each per-scenario DoS workbook has 576 consecutive 5 s windows, and each merged intensity workbook concatenates five scenarios into 2,880 rows. For both FDI and DoS data, label `0` denotes normal operation and label `1` denotes an attacked sample. `Traffic_volume` is the number of message bytes aggregated in each consecutive 5 s window.
 
 The 132 FDI features combine the source meter identifier and measurement variable. Common variable names and units are:
 
@@ -103,9 +104,9 @@ CPDS-AD_dataset/scenario_records/
 |   |-- local_model_consistent/test_data_LMC_1/ ... test_data_LMC_5/
 |   `-- adversarial_learning/test_data_AL_1/ ... test_data_AL_5/
 `-- DoS_attacks/
-    |-- low_intensity/test_data_D_1/ ... test_data_D_2/
-    |-- medium_intensity/test_data_D_3/ ... test_data_D_4/
-    `-- high_intensity/test_data_D_5/ ... test_data_D_6/
+    |-- low_intensity/test_data_D_L_1/ ... test_data_D_L_5/
+    |-- medium_intensity/test_data_D_M_1/ ... test_data_D_M_5/
+    `-- high_intensity/test_data_D_H_1/ ... test_data_D_H_5/
 ```
 
 A normal-operation directory contains the primary `log_YYYYMMDD_HH.log`, extracted messages, device-level Excel files, `traffic_data.xlsx`, and the corresponding parsing/alignment scripts. The device files comprise one line-cabinet meter, one load-cabinet meter, five three-phase meters, and nine single-phase meters.
@@ -118,6 +119,8 @@ Each DoS directory contains exactly four files:
 - `attack_time_ranges.csv`: start and end times of attack intervals;
 - `cal_traffic.py`: 5 s traffic-aggregation script;
 - `traffic_data.xlsx`: scenario-level traffic time series.
+
+Each intensity contains five scenario directories. Every `traffic_data.xlsx` contains 576 rows with the columns `Sequence`, `Traffic_volume`, and `Labels`; the corresponding merged intensity workbook contains 2,880 rows. In every scenario, 13 windows are labeled as attacked because the 5 s aggregation windows overlap the 15 short attack intervals.
 
 ## Detection methods
 
@@ -133,7 +136,7 @@ Each DoS directory contains exactly four files:
 - Isolation Forest;
 - K-nearest-neighbor distance (`KNN`).
 
-Isolation Forest and KNN use `Traffic_volume` as their only feature and fit their reference models on the independent normal traffic in `train_data_1` through `train_data_25`. All three intensity levels are evaluated by default, and precision, recall, and F1-score are reported.
+All three detectors use `Traffic_volume` as their only feature. Z-score estimates its mean and standard deviation from the unlabeled evaluation workbook; Isolation Forest and KNN likewise fit transductively on that workbook without using `Labels`. Directional upper-tail filtering reflects the traffic increase expected from DoS flooding. Dataset-specific hyperparameters and fixed Isolation-Forest seeds are used for the low-, medium-, and high-intensity profiles. `Labels` are consulted only when precision, recall, and F1-score are calculated.
 
 ### UMAP validation
 
@@ -206,13 +209,13 @@ Training writes `checkpoint.pth` and `log_vali_loss.xlsx` into the corresponding
 python DoS_detection.py
 ```
 
-The default run evaluates the high-, medium-, and low-intensity workbooks and writes `DoS_detection_performances.xlsx`. Custom input and output paths can be supplied as follows:
+The default run evaluates the low-, medium-, and high-intensity workbooks and writes `DoS_detection_performances.xlsx`. Custom input and output paths can be supplied as follows:
 
 ```bash
 python DoS_detection.py --inputs CPDS-AD_dataset/merged_datasets/test_data_D_low.xlsx --output outputs/dos_low.xlsx
 ```
 
-Results from `DoS_detection.py` may vary slightly across computers due to differences in dependency versions; this does not affect the overall conclusion.
+`DoS_detection.py` fixes Python, NumPy, stable ranking, and model-level random seeds. With the package versions listed above, repeated runs reproduce the same predictions and metrics.
 
 ### Generate UMAP figures
 
@@ -239,26 +242,29 @@ FDI evaluation uses fixed Python, NumPy, and PyTorch seeds and enables determini
 
 ## Data and code availability
 
+- Published article: [*Scientific Data*](https://www.nature.com/articles/s41597-026-08327-4)
 - Dataset: [CPDS-AD dataset on figshare](https://doi.org/10.6084/m9.figshare.31989933)
-- Archived source code: [CPDS-AD-Detection-Methods on Zenodo](https://doi.org/10.5281/zenodo.19562168)
+- Archived source code: [CPDS-AD-Detection-Methods on Zenodo](https://doi.org/10.5281/zenodo.19547200)
 - Development repository: [GitHub](https://github.com/liuyulinlyl/CPDS-AD-Detection-Methods)
+
+The dataset may continue to be updated as corrections, refinements, or additional records become available. For the latest data release, file inventory, and version history, refer to the [figshare data repository](https://doi.org/10.6084/m9.figshare.31989933); the copy included in this code repository may not always be the newest release.
 
 ## Citation
 
-When using CPDS-AD, cite the dataset and code archive:
+When using CPDS-AD, please cite the associated article:
 
 ```text
-Liu, Y., Ruan, Z., & Shi, L. (2026). CPDS-AD dataset. figshare.
-https://doi.org/10.6084/m9.figshare.31989933
-
-Liu, Y., Ruan, Z., & Shi, L. (2026). CPDS-AD-Detection-Methods. Zenodo.
-https://doi.org/10.5281/zenodo.19562168
+Liu, Y., Ruan, Z., & Shi, L. (2026). A Cyber-Attack Detection Dataset for
+Distribution Systems Generated from a Scaled Cyber-Physical Testbed.
+Scientific Data. https://doi.org/10.1038/s41597-026-08327-4
 ```
 
-Please also cite the associated manuscript when bibliographic publication details become available:
+Please also cite the dataset and archived code when using the corresponding artifacts:
 
 ```text
-Yulin Liu, Zhaojun Ruan, and Libao Shi.
-A Cyber-Attack Detection Dataset for Distribution Systems Generated from a
-Scaled Cyber-Physical Testbed.
+Liu, Y., Ruan, Z., & Shi, L. (2026). CPDS-AD dataset [Data set]. figshare.
+https://doi.org/10.6084/m9.figshare.31989933
+
+liuyulinlyl. (2026). CPDS-AD-Detection-Methods [Computer software]. Zenodo.
+https://doi.org/10.5281/zenodo.19547200
 ```

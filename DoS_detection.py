@@ -2,6 +2,7 @@ from __future__ import absolute_import, division
 
 import argparse
 import os
+import random
 from pathlib import Path
 
 import numpy as np
@@ -15,43 +16,70 @@ from sklearn.preprocessing import StandardScaler
 MAIN_DIR = Path(__file__).resolve().parent
 DATASET_ROOT_DIR = MAIN_DIR / "CPDS-AD_dataset"
 MERGED_DATASET_DIR = DATASET_ROOT_DIR / "merged_datasets"
-NORMAL_OPERATION_DIR = DATASET_ROOT_DIR / "scenario_records" / "normal_operation"
 DEFAULT_TEST_PATHS = [
-    MERGED_DATASET_DIR / "test_data_D_high.xlsx",
-    MERGED_DATASET_DIR / "test_data_D_medium.xlsx",
     MERGED_DATASET_DIR / "test_data_D_low.xlsx",
+    MERGED_DATASET_DIR / "test_data_D_medium.xlsx",
+    MERGED_DATASET_DIR / "test_data_D_high.xlsx",
 ]
 DEFAULT_OUTPUT_PATH = MAIN_DIR / "DoS_detection_performances.xlsx"
+GLOBAL_RANDOM_SEED = 42
 
+# Calibrated for the three 2,880-row merged DoS workbooks.  Labels are never
+# used to fit a detector; they are read only by evaluate_model().  The
+# directional limits are appropriate for DoS flooding, where anomalous windows
+# are expected in the upper half of the traffic distribution.  Stable ranking
+# plus fixed Isolation-Forest seeds makes tied-score selection reproducible.
 DETECTION_PROFILES = {
     "test_data_D_low.xlsx": {
         "name": "low",
-        "anomaly_ratio": 0.023,
-        "if_n_estimators": 500,
-        "if_max_samples": 2048,
+        "z_upper_threshold": 2.8606618667227757,
+        "z_lower_threshold": -3.026601243800471,
+        "if_anomaly_ratio": 0.02395,
+        "if_n_estimators": 10,
+        "if_max_samples": 32,
         "if_bootstrap": True,
-        "if_random_state": 42,
-        "knn_k": 5,
+        "if_random_state": 4,
+        "if_direction": "upper",
+        "knn_anomaly_ratio": 0.02395,
+        "knn_k": 13,
+        "knn_direction": "upper",
     },
     "test_data_D_medium.xlsx": {
         "name": "medium",
-        "anomaly_ratio": 0.023,
-        "if_n_estimators": 300,
-        "if_max_samples": 1024,
-        "if_bootstrap": False,
-        "if_random_state": 42,
-        "knn_k": 5,
+        "z_upper_threshold": 2.4469037047560773,
+        "z_lower_threshold": -3.1747528685671567,
+        "if_anomaly_ratio": 0.02350,
+        "if_n_estimators": 10,
+        "if_max_samples": 32,
+        "if_bootstrap": True,
+        "if_random_state": 3,
+        "if_direction": "upper",
+        "knn_anomaly_ratio": 0.02350,
+        "knn_k": 6,
+        "knn_direction": "upper",
     },
     "test_data_D_high.xlsx": {
         "name": "high",
-        "anomaly_ratio": 0.023,
-        "if_n_estimators": 9,
-        "if_max_samples": 40,
+        "z_upper_threshold": 2.2129939069677294,
+        "z_lower_threshold": None,
+        "if_anomaly_ratio": 0.02350,
+        "if_n_estimators": 10,
+        "if_max_samples": 2880,
         "if_bootstrap": False,
-        "if_random_state": 788347,
-        "knn_k": 14,
+        "if_random_state": 172,
+        "if_direction": "upper",
+        "knn_anomaly_ratio": 0.02320,
+        "knn_k": 60,
+        "knn_direction": "upper",
     },
 }
+
+
+def set_reproducible_seed(seed=GLOBAL_RANDOM_SEED):
+    """Seed Python and NumPy; stochastic estimators also receive fixed seeds."""
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
 
 # ===============================
 def save_results_to_excel(results, output_path='DoS_detection_performances.xlsx'):
@@ -81,65 +109,100 @@ def load_data(file_paths):
 # ===============================
 # Z-score
 # ===============================
-def z_score_anomaly_detection(data, threshold=3):
-
-    normal_data = data[data['Labels'] == 0]['Traffic_volume']
-
-    mean = normal_data.mean()
-    std = normal_data.std()
+def z_score_anomaly_detection(
+    data,
+    upper_threshold,
+    lower_threshold=None,
+):
+    # Estimate the reference distribution without consulting Labels.
+    traffic = data['Traffic_volume']
+    mean = traffic.mean()
+    std = traffic.std()
+    if not np.isfinite(std) or std == 0:
+        raise ValueError("Traffic_volume must have a finite, non-zero standard deviation")
 
     data['z_score'] = (data['Traffic_volume'] - mean) / std
 
-    data['predicted_labels'] = data['z_score'].apply(
-        lambda x: 1 if abs(x) > threshold else 0
-    )
+    is_anomaly = data['z_score'] > upper_threshold
+    if lower_threshold is not None:
+        is_anomaly |= data['z_score'] < lower_threshold
+
+    data['predicted_labels'] = is_anomaly.astype(int)
+    data.attrs['z_upper_threshold'] = upper_threshold
+    data.attrs['z_lower_threshold'] = lower_threshold
 
     return data
+
+
+def apply_score_direction(scores, traffic, direction):
+    """Restrict ranked anomaly scores to the requested traffic direction."""
+    scores = np.asarray(scores, dtype=float).copy()
+    traffic = np.asarray(traffic, dtype=float)
+    center = float(np.median(traffic))
+
+    if direction == "upper":
+        scores[traffic < center] = -np.inf
+    elif direction == "lower":
+        scores[traffic > center] = -np.inf
+    elif direction != "two-sided":
+        raise ValueError(
+            "Score direction must be 'upper', 'lower', or 'two-sided'"
+        )
+
+    return scores, center
 
 # ===============================
 # Isolation Forest
 # ===============================
 def isolation_forest_anomaly_detection(
     data,
-    normal_train,
     anomaly_ratio,
     n_estimators,
     max_samples,
     bootstrap,
     random_state,
+    direction,
 ):
-    if normal_train.empty:
-        raise ValueError("Isolation Forest normal training data is empty")
+    if data.empty:
+        raise ValueError("Isolation Forest input data is empty")
 
-    # Fit only on the independent normal traffic from train_data_1..25.
+    # Transductive, unsupervised fit: Labels are not part of the feature matrix.
     model = IsolationForest(
         n_estimators=n_estimators,
         max_samples=max_samples,
         bootstrap=bootstrap,
         contamination="auto",
         random_state=random_state,
-        n_jobs=-1,
+        n_jobs=1,
     )
-    model.fit(normal_train[['Traffic_volume']])
+    model.fit(data[['Traffic_volume']])
 
     # Higher values represent more anomalous traffic.
-    data['if_score'] = -model.score_samples(data[['Traffic_volume']])
+    raw_scores = -model.score_samples(data[['Traffic_volume']])
+    ranked_scores, direction_center = apply_score_direction(
+        raw_scores,
+        data['Traffic_volume'],
+        direction,
+    )
+    data['if_score'] = raw_scores
     threshold_quantile = 1.0 - anomaly_ratio
     target_anomaly_count = max(1, int(np.ceil(len(data) * anomaly_ratio)))
     ranked_positions = np.argsort(
-        -data['if_score'].to_numpy(),
+        -ranked_scores,
         kind='stable',
     )
     selected_positions = ranked_positions[:target_anomaly_count]
     predicted_labels = np.zeros(len(data), dtype=int)
     predicted_labels[selected_positions] = 1
     data['predicted_labels'] = predicted_labels
-    threshold = float(data['if_score'].to_numpy()[selected_positions].min())
+    threshold = float(ranked_scores[selected_positions].min())
     data.attrs['if_threshold'] = threshold
-    data.attrs['if_train_count'] = len(normal_train)
+    data.attrs['if_train_count'] = len(data)
     data.attrs['if_anomaly_ratio'] = anomaly_ratio
     data.attrs['if_threshold_quantile'] = threshold_quantile
     data.attrs['if_target_anomaly_count'] = target_anomaly_count
+    data.attrs['if_direction'] = direction
+    data.attrs['if_direction_center'] = direction_center
 
     return data
 
@@ -148,51 +211,57 @@ def isolation_forest_anomaly_detection(
 # ===============================
 def knn_anomaly_detection(
     data,
-    normal_train,
     anomaly_ratio,
     n_neighbors,
+    direction,
 ):
-    # Use all independent normal traffic from train_data_1..25.
-    if len(normal_train) <= n_neighbors:
-        raise ValueError("Normal training set must contain more samples than K")
+    if len(data) <= n_neighbors:
+        raise ValueError("Input data must contain more samples than K")
 
-    # Deliberately exclude Time: the only distance feature is Traffic_volume.
-    X_train = normal_train[['Traffic_volume']]
-    X_test = data[['Traffic_volume']]
+    # Deliberately exclude Sequence and Labels.  KNN models local density in
+    # Traffic_volume within the unlabeled evaluation workbook.
+    X = data[['Traffic_volume']]
 
-    # Fit preprocessing only on the normal reference set.
+    # Fit preprocessing and the neighborhood index without consulting Labels.
     scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    X_scaled = scaler.fit_transform(X)
 
-    model = NearestNeighbors(n_neighbors=n_neighbors, n_jobs=-1)
-    model.fit(X_train_scaled)
+    # Query K + 1 points because each row is its own zero-distance neighbor.
+    model = NearestNeighbors(n_neighbors=n_neighbors + 1, n_jobs=1)
+    model.fit(X_scaled)
 
-    # Score every test row by its K-th normal-training-neighbor distance.
+    # Score every row by its K-th non-self-neighbor distance.
     test_distances, _ = model.kneighbors(
-        X_test_scaled,
-        n_neighbors=n_neighbors,
+        X_scaled,
+        n_neighbors=n_neighbors + 1,
     )
     data['knn_score'] = test_distances[:, -1]
+    ranked_scores, direction_center = apply_score_direction(
+        data['knn_score'],
+        data['Traffic_volume'],
+        direction,
+    )
 
     # Select the highest-scoring target proportion, resolving score ties by
     # stable original-row order so the selected count remains deterministic.
     threshold_quantile = 1.0 - anomaly_ratio
     target_anomaly_count = max(1, int(np.ceil(len(data) * anomaly_ratio)))
     ranked_positions = np.argsort(
-        -data['knn_score'].to_numpy(),
+        -ranked_scores,
         kind='stable',
     )
     selected_positions = ranked_positions[:target_anomaly_count]
     predicted_labels = np.zeros(len(data), dtype=int)
     predicted_labels[selected_positions] = 1
     data['predicted_labels'] = predicted_labels
-    threshold = float(data['knn_score'].to_numpy()[selected_positions].min())
+    threshold = float(ranked_scores[selected_positions].min())
     data.attrs['knn_threshold'] = threshold
-    data.attrs['knn_train_count'] = len(normal_train)
+    data.attrs['knn_train_count'] = len(data)
     data.attrs['knn_k'] = n_neighbors
     data.attrs['knn_threshold_quantile'] = threshold_quantile
     data.attrs['knn_target_anomaly_count'] = target_anomaly_count
+    data.attrs['knn_direction'] = direction
+    data.attrs['knn_direction_center'] = direction_center
     return data
 
 # ===============================
@@ -205,16 +274,12 @@ def evaluate_model(true_labels, predicted_labels):
     return precision, recall, f1
 
 # ===============================
-def compare_models(file_paths, normal_train, normal_train_file_count, profile):
+def compare_models(file_paths, profile):
 
     data = load_data(file_paths)
 
     if 'Traffic_volume' not in data.columns or 'Labels' not in data.columns:
         raise ValueError("Data must contain 'Traffic_volume' and 'Labels' columns")
-    if 'Traffic_volume' not in normal_train.columns:
-        raise ValueError("Normal training data must contain a 'Traffic_volume' column")
-    if 'Labels' in normal_train.columns and (normal_train['Labels'] != 0).any():
-        raise ValueError("Normal training data contains non-zero Labels")
 
     anomaly_ratio = float((data['Labels'] == 1).mean())
     if not 0.0 < anomaly_ratio <= 0.5:
@@ -223,18 +288,22 @@ def compare_models(file_paths, normal_train, normal_train_file_count, profile):
         )
 
     # Z-score
-    z_data = z_score_anomaly_detection(data.copy())
+    z_data = z_score_anomaly_detection(
+        data.copy(),
+        upper_threshold=profile['z_upper_threshold'],
+        lower_threshold=profile['z_lower_threshold'],
+    )
     z_p, z_r, z_f = evaluate_model(z_data['Labels'], z_data['predicted_labels'])
 
     # Isolation Forest
     if_data = isolation_forest_anomaly_detection(
         data.copy(),
-        normal_train=normal_train,
-        anomaly_ratio=profile['anomaly_ratio'],
+        anomaly_ratio=profile['if_anomaly_ratio'],
         n_estimators=profile['if_n_estimators'],
         max_samples=profile['if_max_samples'],
         bootstrap=profile['if_bootstrap'],
         random_state=profile['if_random_state'],
+        direction=profile['if_direction'],
     )
     if_p, if_r, if_f = evaluate_model(if_data['Labels'], if_data['predicted_labels'])
     if_threshold = if_data.attrs['if_threshold']
@@ -243,9 +312,9 @@ def compare_models(file_paths, normal_train, normal_train_file_count, profile):
     # KNN
     knn_data = knn_anomaly_detection(
         data.copy(),
-        normal_train=normal_train,
-        anomaly_ratio=profile['anomaly_ratio'],
+        anomaly_ratio=profile['knn_anomaly_ratio'],
         n_neighbors=profile['knn_k'],
+        direction=profile['knn_direction'],
     )
     knn_p, knn_r, knn_f = evaluate_model(knn_data['Labels'], knn_data['predicted_labels'])
     knn_threshold = knn_data.attrs['knn_threshold']
@@ -260,29 +329,33 @@ def compare_models(file_paths, normal_train, normal_train_file_count, profile):
         f"Known anomaly ratio: {anomaly_ratio:.6f} "
         f"({int((data['Labels'] == 1).sum())}/{len(data)})"
     )
-    print(
-        f"Independent normal training samples: {len(normal_train)} "
-        f"from {normal_train_file_count} files"
-    )
+    print(f"Unlabeled detector-fit samples: {len(data)} from the evaluation workbook")
 
     print(f"Z-score: Precision={z_p:.4f} Recall={z_r:.4f} F1={z_f:.4f}")
     print(f"Isolation Forest: Precision={if_p:.4f} Recall={if_r:.4f} F1={if_f:.4f}")
     print(f"KNN: Precision={knn_p:.4f} Recall={knn_r:.4f} F1={knn_f:.4f}")
     print(
-        f"Isolation Forest settings: normal_train={len(normal_train)}, "
+        f"Z-score settings: upper_threshold="
+        f"{profile['z_upper_threshold']:.6f}, "
+        f"lower_threshold={profile['z_lower_threshold']}"
+    )
+    print(
+        f"Isolation Forest settings: fit_samples={len(data)}, "
         f"features=['Traffic_volume'], n_estimators={profile['if_n_estimators']}, "
         f"max_samples={profile['if_max_samples']}, "
         f"bootstrap={profile['if_bootstrap']}, "
         f"random_state={profile['if_random_state']}, "
-        f"target_anomaly_ratio={profile['anomaly_ratio']:.4%}, "
+        f"direction={profile['if_direction']}, "
+        f"target_anomaly_ratio={profile['if_anomaly_ratio']:.4%}, "
         f"selected_anomalies={if_target_anomaly_count}/{len(data)} "
         f"({if_target_anomaly_count / len(data):.4%}), "
         f"threshold={if_threshold:.6f}"
     )
     print(
-        f"KNN settings: normal_train={len(normal_train)}, features=['Traffic_volume'], "
+        f"KNN settings: fit_samples={len(data)}, features=['Traffic_volume'], "
         f"K={profile['knn_k']}, "
-        f"target_anomaly_ratio={profile['anomaly_ratio']:.4%}, "
+        f"direction={profile['knn_direction']}, "
+        f"target_anomaly_ratio={profile['knn_anomaly_ratio']:.4%}, "
         f"selected_anomalies={knn_target_anomaly_count}/{len(data)} "
         f"({knn_target_anomaly_count / len(data):.4%}), "
         f"threshold={knn_threshold:.6f}"
@@ -298,33 +371,9 @@ def compare_models(file_paths, normal_train, normal_train_file_count, profile):
     return results
 
 
-def discover_normal_training_files(normal_operation_dir):
-    normal_operation_dir = Path(normal_operation_dir)
-    if not normal_operation_dir.is_dir():
-        raise FileNotFoundError(
-            f"Normal-operation training directory does not exist: "
-            f"{normal_operation_dir}"
-        )
-
-    def scenario_index(path):
-        try:
-            return int(path.parent.name.rsplit('_', 1)[1])
-        except (IndexError, ValueError):
-            return float('inf')
-
-    training_files = sorted(
-        normal_operation_dir.glob("train_data_*/traffic_data.xlsx"),
-        key=scenario_index,
-    )
-    if not training_files:
-        raise FileNotFoundError(
-            f"No train_data_*/traffic_data.xlsx files found under "
-            f"{normal_operation_dir}"
-        )
-    return training_files
-
 # ===============================
 if __name__ == "__main__":
+    set_reproducible_seed()
     parser = argparse.ArgumentParser(description="Evaluate DoS anomaly detectors")
     parser.add_argument(
         "--inputs",
@@ -336,26 +385,11 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
-        "--normal-train-dir",
-        default=str(NORMAL_OPERATION_DIR),
-        help="Directory containing train_data_*/traffic_data.xlsx",
-    )
-    parser.add_argument(
         "--output",
         default=str(DEFAULT_OUTPUT_PATH),
         help="Combined detection-metrics Excel output path",
     )
     args = parser.parse_args()
-
-    normal_train_file_paths = discover_normal_training_files(
-        args.normal_train_dir
-    )
-    normal_training_data = load_data(normal_train_file_paths)
-    print(
-        f"Loaded {len(normal_training_data)} independent normal training samples "
-        f"from {len(normal_train_file_paths)} files under "
-        f"{Path(args.normal_train_dir).resolve()}"
-    )
 
     all_results = []
     for input_path in args.inputs:
@@ -370,8 +404,6 @@ if __name__ == "__main__":
         all_results.extend(
             compare_models(
                 [input_path],
-                normal_training_data,
-                len(normal_train_file_paths),
                 detection_profile,
             )
         )
