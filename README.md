@@ -36,7 +36,7 @@ Measurements were polled at 5 s intervals. Each 24 h load profile was compressed
 | Adversarial-learning FDI | `AL` | 5 | Constructs stealth-oriented perturbations from learned normal-data patterns. |
 | Polling-aware DoS | `D` | 15 | Injects spoofed Modbus response traffic at low, medium, or high intensity while disrupting polling responses. |
 
-The baseline additive and subtractive attacks use nominal proportional biases of approximately 1%, with limited variation between attacked channels. The DoS data contain five independently recorded scenarios at each intensity, for a total of 15 scenarios. Each scenario contains 15 attack intervals of 0.5 s. Every interval injects 5, 8, or 10 spoofed 23-byte Modbus response messages in the low-, medium-, or high-intensity setting, respectively. These settings correspond to approximately 230, 368, and 460 bytes/s; the rates are reported as 230, 370, and 460 bytes/s in the paper.
+The baseline additive and subtractive attacks use nominal proportional biases of approximately 1%, with limited variation between attacked channels. The DoS data contain five independently recorded scenarios at each intensity, for a total of 15 scenarios. Each scenario contains 15 attack intervals of 0.5 s. Every interval injects 5, 8, or 10 spoofed 23-byte Modbus response messages in the low-, medium-, or high-intensity setting, respectively. These settings correspond to approximately 230, 370, and 460 bytes/s.
 
 ## Repository structure
 
